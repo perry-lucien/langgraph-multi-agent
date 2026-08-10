@@ -27,63 +27,64 @@ from langchain_openai import ChatOpenAI
 # ==============================================================================
 # 🔑 API Key 统一配置区（在这里统一填写，下方各代理会引用）
 # ==============================================================================
-OPENAI_API_KEY = "YOUR_API_KEY"        # 【⬅️ 在这里填入您的 OpenAI API Key】
-# DEEPSEEK_API_KEY = "YOUR_API_KEY"    # 【⬅️ 如使用 DeepSeek，在这里填入】
-# ANTHROPIC_API_KEY = "YOUR_API_KEY"   # 【⬅️ 如使用 Claude，在这里填入】
+# 【方式一：中转/聚合 API，例如 OpenCode 平台（推荐：一个 Key 调多个不同模型）】
+OPENCODE_API_KEY = "YOUR_OPENCODE_KEY"            # 【⬅️ 在这里填入 OpenCode 的 API Key】
+OPENCODE_BASE_URL = "https://api.opencode.ai/v1"   # 【⬅️ 填入 OpenCode 提供的 Base URL (注意以 /v1 结尾)】
+
+# 【方式二：官方独立 API Key】
+OPENAI_API_KEY = "YOUR_OPENAI_KEY"                 # 【⬅️ 官方 OpenAI Key】
+# DEEPSEEK_API_KEY = "YOUR_DEEPSEEK_KEY"           # 【⬅️ 官方 DeepSeek Key】
+# ANTHROPIC_API_KEY = "YOUR_ANTHROPIC_KEY"         # 【⬅️ 官方 Claude Key】
 
 
 # ==============================================================================
-# 🤖 各子代理的模型配置（每个代理可独立配置不同的模型和 API）
+# 🤖 各子代理的模型配置（带有自动降级 Fallback 机制）
 # ==============================================================================
+# 💡 提示：如果使用 OpenCode 等中转站，当主模型调用失败（超时/限流）时，
+#          代码会自动无缝切换到 with_fallbacks() 里的备用模型，保证整个状态机稳定运行！
+
+def build_llm(model_name: str, temperature: float = 0.2):
+    """辅助函数：快速创建一个模型实例"""
+    return ChatOpenAI(
+        model=model_name,
+        api_key=OPENCODE_API_KEY,      # 这里统一绑定 OpenCode 的 Key
+        base_url=OPENCODE_BASE_URL,    # 这里统一绑定 OpenCode 的 Base URL
+        temperature=temperature,
+    )
 
 # ---- 产品经理 Agent（需要极强的理解力和表达力）----
-PM_LLM = ChatOpenAI(
-    model="gpt-4o",                  # 【⬅️ 修改模型名称】
-    api_key=OPENAI_API_KEY,          # 【⬅️ 修改 API Key 变量名】
-    # base_url="https://api.deepseek.com/v1",  # 【格式二】取消注释并修改为目标 API 地址
-    temperature=0.4,
-)
-# PM_LLM = ChatAnthropic(model="claude-3-5-sonnet-20241022", api_key=ANTHROPIC_API_KEY)  # 【格式三】
+# 主力用 Claude 3.5，挂了用 GPT-4o，再挂用 DeepSeek
+PM_LLM = build_llm("claude-3-5-sonnet", 0.4).with_fallbacks([
+    build_llm("gpt-4o", 0.4),
+    build_llm("deepseek-chat", 0.4)
+])
 
 # ---- 架构师 Agent（需要强逻辑与 API 设计能力）----
-ARCHITECT_LLM = ChatOpenAI(
-    model="gpt-4o",                  # 【⬅️ 修改模型名称】
-    api_key=OPENAI_API_KEY,          # 【⬅️ 修改 API Key 变量名】
-    # base_url="...",                # 【格式二】取消注释并修改
-    temperature=0.3,
-)
+# 主力用 GPT-4o，挂了用 Claude 3.5
+ARCHITECT_LLM = build_llm("gpt-4o", 0.3).with_fallbacks([
+    build_llm("claude-3-5-sonnet", 0.3)
+])
 
 # ---- 技术总监 Agent（需要全面审查能力）----
-TECH_LEAD_LLM = ChatOpenAI(
-    model="gpt-4o",                  # 【⬅️ 修改模型名称】
-    api_key=OPENAI_API_KEY,          # 【⬅️ 修改 API Key 变量名】
-    # base_url="...",                # 【格式二】取消注释并修改
-    temperature=0.2,
-)
+# 主力用 GPT-4o，挂了用 DeepSeek
+TECH_LEAD_LLM = build_llm("gpt-4o", 0.2).with_fallbacks([
+    build_llm("deepseek-chat", 0.2)
+])
 
-# ---- 前端开发 Agent（需要代码生成能力）----
-FRONTEND_LLM = ChatOpenAI(
-    model="gpt-4o-mini",             # 【⬅️ 可替换为 deepseek-coder 等代码专用模型以节省成本】
-    api_key=OPENAI_API_KEY,          # 【⬅️ 修改 API Key 变量名】
-    # base_url="...",                # 【格式二】取消注释并修改
-    temperature=0.2,
-)
+# ---- 前端开发 Agent（推荐 DeepSeek 或 Claude）----
+FRONTEND_LLM = build_llm("deepseek-chat", 0.2).with_fallbacks([
+    build_llm("claude-3-5-sonnet", 0.2)
+])
 
-# ---- 后端开发 Agent（需要代码生成能力）----
-BACKEND_LLM = ChatOpenAI(
-    model="gpt-4o-mini",             # 【⬅️ 可替换为 deepseek-coder 等代码专用模型以节省成本】
-    api_key=OPENAI_API_KEY,          # 【⬅️ 修改 API Key 变量名】
-    # base_url="...",                # 【格式二】取消注释并修改
-    temperature=0.2,
-)
+# ---- 后端开发 Agent（推荐 DeepSeek 或 GPT-4o）----
+BACKEND_LLM = build_llm("deepseek-chat", 0.2).with_fallbacks([
+    build_llm("gpt-4o", 0.2)
+])
 
-# ---- QA 测试 Agent（任务相对简单，可用小模型节省成本）----
-QA_LLM = ChatOpenAI(
-    model="gpt-4o-mini",             # 【⬅️ 修改模型名称】
-    api_key=OPENAI_API_KEY,          # 【⬅️ 修改 API Key 变量名】
-    # base_url="...",                # 【格式二】取消注释并修改
-    temperature=0.1,
-)
+# ---- QA 测试 Agent（任务较简单，性价比优先）----
+QA_LLM = build_llm("gpt-4o-mini", 0.1).with_fallbacks([
+    build_llm("deepseek-chat", 0.1)
+])
 
 
 # ==============================================================================
