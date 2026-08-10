@@ -1,0 +1,13 @@
+# 核心依赖
+langgraph>=0.2.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+
+# 【可选】如需使用 Anthropic Claude 系列模型，取消下行注释
+# langchain-anthropic>=0.2.0
+
+# 经验记忆数据库（纯本地存储，无需云端）
+chromadb>=0.5.0
+
+# Docker 沙盒执行（需本机已安装 Docker Desktop）
+docker>=7.0.0

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 沙盒运行时生成的临时文件
+sandbox/*.py
+sandbox/*.html
+sandbox/*.js
+sandbox/*.db
+
+# 经验数据库（本地数据，不上传。如需共享经验库可移除此行）
+experience_data/
+
+# 环境变量 / 密钥（绝对不要上传！）
+.env
+*.key
