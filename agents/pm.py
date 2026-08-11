@@ -81,7 +81,9 @@ def pm_agent(state: dict) -> dict:
     if "MISSING_CAPABILITY:" in prd_content:
         for line in prd_content.split("\n"):
             if "MISSING_CAPABILITY:" in line:
-                missing = line.split("MISSING_CAPABILITY:")[-1].strip()
+                val = line.split("MISSING_CAPABILITY:")[-1].strip()
+                if val and val.lower() not in ["无", "none", "no", "无。"]:
+                    missing = val
                 break
 
     result = {"prd": prd_content}

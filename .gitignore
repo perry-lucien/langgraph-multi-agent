@@ -36,3 +36,4 @@ experience_data/
 # 环境变量 / 密钥（绝对不要上传！）
 .env
 *.key
+memory/

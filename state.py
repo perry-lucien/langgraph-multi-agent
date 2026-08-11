@@ -17,6 +17,7 @@ class AgentState(TypedDict, total=False):
 
     # ---- 阶段一：需求与策划 ----
     user_requirement: str               # 用户原始需求
+    prd_approved: bool                  # PRD 是否被人类批准（支持反复修改）
     available_agents: list              # 子代理能力注册表（由 config.py 提供）
     prd: str                            # 产品经理输出的 PRD（产品需求文档）
     missing_capability: str             # PM 发现的缺失能力（非空时触发人工介入）

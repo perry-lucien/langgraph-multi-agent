@@ -49,14 +49,10 @@ experience_db = ExperienceDB()
 
 def pm_router(state: dict) -> str:
     """
-    PM 完成后的路由：
-    - 发现能力缺口 → 终止并提示人工介入
-    - 能力匹配 → 进入架构设计阶段
+    PM 完成后的路由：无论是否发现能力缺口，都进入人工审核节点。
     """
     if state.get("missing_capability"):
-        print(f"\n🛑 [系统挂起] 能力缺口: {state['missing_capability']}")
-        print("  请在 config.py 的 AGENT_REGISTRY 中补充对应能力后重新运行。")
-        return "human_intervention"
+        print(f"\n🛑 [系统拦截] 发现能力缺口: {state['missing_capability']} (将交由人工决策)")
     return "architect"
 
 
@@ -146,6 +142,22 @@ def save_experience_node(state: dict) -> dict:
     return {"final_summary": summary}
 
 
+def human_review_node(state: AgentState):
+    """
+    空节点，仅用作断点停靠，以便人类在终端中插入修改意见。
+    """
+    pass
+
+def human_review_router(state: AgentState):
+    """
+    根据人类的审批状态决定是进入下一阶段还是打回重写
+    """
+    if state.get("prd_approved", False):
+        return "architect"
+    else:
+        return "pm"
+
+
 # ==============================================================================
 # 图编排 (Graph Assembly) —— 状态机的"骨架与轨道"
 # ==============================================================================
@@ -156,6 +168,7 @@ def build_graph():
 
     # ---- 注册所有节点 ----
     workflow.add_node("pm", pm_agent)
+    workflow.add_node("human_review_node", human_review_node)
     workflow.add_node("architect", architect_agent)
     workflow.add_node("tech_lead", tech_lead_agent)
     workflow.add_node("dispatch", dispatch_node)        # Fan-out 分叉点
@@ -170,8 +183,14 @@ def build_graph():
 
     # ---- 阶段一：PM → 能力匹配检查 ----
     workflow.add_conditional_edges("pm", pm_router, {
-        "architect": "architect",
+        "architect": "human_review_node", # 原本去 architect，现在先去人工审核
         "human_intervention": END,
+    })
+
+    # ---- 阶段一.五：人工审核 → 决定去留 ----
+    workflow.add_conditional_edges("human_review_node", human_review_router, {
+        "architect": "architect",
+        "pm": "pm",
     })
 
     # ---- 阶段二：架构师 → 技术总监（红蓝对抗）----
@@ -226,7 +245,7 @@ def main():
 
     app = workflow.compile(
         checkpointer=memory,
-        interrupt_before=["architect"],  # PM 完成后暂停，等待人类确认 PRD
+        interrupt_before=["human_review_node"],  # PM 完成后暂停，等待人类确认 PRD
     )
 
     config = {"configurable": {"thread_id": "project_001"}}
@@ -240,40 +259,68 @@ def main():
 
     initial_state = {
         "user_requirement": user_input,
+        "prd_approved": False,
         "available_agents": AGENT_REGISTRY,
         "review_rounds": 0,
         "dev_revision_count": 0,
     }
 
     # ======================================================================
-    # 第一阶段：PM 产出 PRD
+    # 第一阶段：PM 产出 PRD 与 人机交互循环
     # ======================================================================
     print("\n" + "-" * 60)
     print("📋 阶段一：产品经理分析需求")
     print("-" * 60)
 
-    for event in app.stream(initial_state, config=config, stream_mode="values"):
-        pass
+    # 我们使用一个 while 循环来处理多次中断和恢复
+    while True:
+        # 启动/恢复图执行
+        for event in app.stream(initial_state if not app.get_state(config).values else None, config=config, stream_mode="values"):
+            pass
+        
+        current_state = app.get_state(config)
+        
+        # 获取下一个要执行的节点，如果为空说明跑完了整个状态机
+        next_nodes = current_state.next
+        if not next_nodes:
+            break
 
-    # 检查是否因能力缺失而终止
-    current_state = app.get_state(config)
-    if current_state.values.get("missing_capability"):
-        print(f"\n⚠️ 系统因能力缺口而终止: {current_state.values['missing_capability']}")
-        print("请更新 config.py 中的 AGENT_REGISTRY，补充缺失的能力后重新运行。")
-        return
+        # 如果卡在了 human_review_node，则索取人类反馈
+        if "human_review_node" in next_nodes:
+            # 优先处理能力缺口
+            if current_state.values.get("missing_capability"):
+                print("\n" + "=" * 60)
+                print(f"⚠️ 产品经理发现能力缺口: {current_state.values['missing_capability']}")
+                print("=" * 60)
+                confirm = input("\n✅ 输入 'y' 强行忽略缺口继续执行，或直接输入您的反驳意见(例如'前端可以用Electron做')让产品经理重新评估: ").strip()
+                
+                if confirm.lower() == "y":
+                    print("\n🚀 用户强制忽略缺口，继续流程...")
+                    app.update_state(config, {"missing_capability": "", "prd_approved": True})
+                else:
+                    print("\n🔄 收到反驳意见，发回给产品经理重新评估...")
+                    new_req = current_state.values.get("user_requirement", "") + f"\n\n【用户对能力缺口的反驳说明】:\n{confirm}"
+                    app.update_state(config, {"user_requirement": new_req, "missing_capability": "", "prd_approved": False})
+                continue
 
-    # 展示 PRD 并等待人类确认
-    prd = current_state.values.get("prd", "")
-    print("\n" + "=" * 60)
-    print("⏸️  [系统挂起] PRD 已生成，等待您的审核")
-    print("=" * 60)
-    print(prd)
-    print("=" * 60)
-
-    confirm = input("\n✅ PRD 满意吗？输入 'y' 继续流程，输入其他内容则退出: ").strip()
-    if confirm.lower() != "y":
-        print("👋 已退出。您可以修改需求后重新运行。")
-        return
+            # 如果没有能力缺口，则处理 PRD 审核
+            prd = current_state.values.get("prd", "")
+            print("\n" + "=" * 60)
+            print("⏸️  [系统挂起] PRD 已生成，等待您的审核")
+            print("=" * 60)
+            print(prd)
+            print("=" * 60)
+            
+            confirm = input("\n✅ PRD 满意吗？输入 'y' 确认继续，或直接输入您的修改意见让产品经理重写: ").strip()
+            
+            if confirm.lower() == "y":
+                # 用户批准
+                app.update_state(config, {"prd_approved": True})
+            else:
+                # 用户不批准，打回并附加意见
+                print("\n🔄 收到修改意见，正在发回给产品经理重新打磨...")
+                new_req = current_state.values.get("user_requirement", "") + f"\n\n【用户对上个版本 PRD 的修改意见】:\n{confirm}"
+                app.update_state(config, {"user_requirement": new_req, "prd_approved": False})
 
     # ======================================================================
     # 第二至四阶段：架构设计 + 红蓝对抗 + 并发开发 + QA 测试（全自动）
